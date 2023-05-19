@@ -1,8 +1,7 @@
 package com.example.sbwebclient;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpOutputMessage;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 @RestController
@@ -28,6 +28,15 @@ public class PostController {
     @GetMapping
     public ResponseEntity<List<PostDto>> getAllPosts() {
         Flux<PostDto> allPosts = postWebClient.getAllPosts();
+        List<PostDto> posts = allPosts.collectList().block();
+        return ResponseEntity.ok(posts);
+    }
+
+
+//    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE) // MediaType.APPLICATION_JSON_VALUE is default, so we can omit it
+    @GetMapping("/with-duration")
+    public ResponseEntity<List<PostDto>> getAllPostsWithDuration() {
+        Flux<PostDto> allPosts = postWebClient.getAllPosts().delayElements(Duration.ofMillis(30));
         List<PostDto> posts = allPosts.collectList().block();
         return ResponseEntity.ok(posts);
     }
