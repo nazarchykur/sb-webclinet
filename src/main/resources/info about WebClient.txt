@@ -1,0 +1,169 @@
+Відмінності між WebClient та RestTemplate
+    Якщо двома словами, то основна різниця між цими технологіями полягає в тому, що RestTemplate працює синхронно (блокуючи),
+    а WebClient працює асинхронно (не блокуючи).
+
+    RestTemplate - це синхронний клієнт для виконання HTTP-запитів, він надає простий API з шаблонним методом поверх
+    базових HTTP-бібліотек, таких як HttpURLConnection(JDK), HttpComponents(Apache) та іншими.
+
+    Spring WebClient - це асинхронний , реактивний клієнт для виконання HTTP-запитів, частина Spring WebFlux.
+
+
+
+Початок роботи з WebClient
+    Найважливіша для нас залежність —  spring-boot-starter-webflux.
+
+
+
+2. Creating Spring WebClient
+    To create WebClient bean, we can follow any one of the given approaches.
+
+    2.1. Using WebClient.create()
+        The create() method is an overloaded method and can optionally accept a base URL for requests.
+
+            WebClient webClient1 = WebClient.create();  //with empty URI
+
+            WebClient webClient2 = WebClient.create("https://client-domain.com");
+
+    2.2. Using WebClient.Builder API
+        We can also build the client using the DefaultWebClientBuilder class, which uses builder pattern style fluent-API.
+
+        WebClient webClient2 = WebClient.builder()
+                .baseUrl("http://localhost:3000")
+                .defaultCookie("cookie-name", "cookie-value")
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+
+
+3. Sending HTTP Requests
+    To send a request, we can use its fluent API and execute the necessary steps as per requirements. For example, sending
+    an HTTP POST request involves the following steps.
+
+        > Create WebClient.UriSpec reference using method(HttpMethod) or prebuilt methods such as get(), put(), post() or delete().
+        > Set the request URI if not set already.
+        > Set the request headers and authentication details, if any.
+        > Set the request body, if any.
+        > Куки за допомогою методу cookies().
+        > Call the retrieve() or exchange() method. The retrieve() method directly performs the HTTP request and retrieves
+            the response body. The exchange() method returns ClientResponse having the response status and headers. We can
+            get the response body from ClientResponse instance.
+        > Handle the response returned from the server.
+
+    In the following example, we send an HTTP POST request to URI http://localhost:3000/employees that returns an Employee
+    object after the successful call.
+
+        WebClient webClient = WebClient.create("http://localhost:3000");
+
+        Employee createdEmployee = webClient.post()
+                .uri("/employees")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .body(Mono.just(empl), Employee.class)
+                .retrieve()
+                .bodyToMono(Employee.class);
+
+
+    ATTENTION!!!
+        As of Spring 5.3, the exchange() method is deprecated due to potential memory and connection leaks.
+        Prefer exchangeToMono(), exchangeToFlux(), or retrieve() instead.
+
+
+
+4. Handling API Response
+    If we want to get only the response body then using methods retrieve() and then use the bodyToFlux() and bodyToMono() methods.
+
+    ...retrieve().bodyToMono(Employee.class);
+
+    ...retrieve().bodyToFlux(Employee.class);
+
+    Please note that bodyToMono() and bodyToFlux() methods always expect a response body of a given class type.
+    If the response status code is 4xx (client error) or 5xx (Server error) i.e. there is no response body then these
+    methods throw WebClientException. Use bodyToMono(Void.class) if no response body is expected.
+
+        No response body is expected
+        webClient.put()
+                .uri("/employees/100")
+                        .body(Mono.just(empl), Employee.class)
+                .retrieve()
+                .bodyToMono(Void.class);
+
+
+
+5. Spring WebClient Examples
+    5.1. GET API Example
+        Generally, we will use GET API to fetch either collection of resources or a singular resource.
+        Let’s see the example of both use cases using get() method call.
+
+            HTTP GET /employees : collection of employees as Flux
+            HTTP GET /employees/{id} : single employee by id as Mono
+            @Autowired
+            WebClient webClient;
+
+            public Flux<Employee> findAll() {
+                return webClient.get()
+                    .uri("/employees")
+                    .retrieve()
+                    .bodyToFlux(Employee.class);
+            }
+
+            public Mono<Employee> findById(Integer id) {
+                return webClient.get()
+                    .uri("/employees/" + id)
+                    .retrieve()
+                    /*.onStatus(httpStatus -> HttpStatus.NOT_FOUND.equals(httpStatus),
+                            clientResponse -> Mono.empty())*/
+                    .bodyToMono(Employee.class);
+            }
+
+    5.2. POST API Example
+        POST API is commonly used for creating a resource. Let’s see an example of post() method to create an employee.
+
+        HTTP POST /employees : creates a new employee from request body and returns the created employee in response.
+            @Autowired
+            WebClient webClient;
+
+            public Mono<Employee> create(Employee empl) {
+                return webClient.post()
+                    .uri("/employees")
+                    .body(Mono.just(empl), Employee.class)
+                    .retrieve()
+                    .bodyToMono(Employee.class);
+            }
+
+    5.3. PUT API Example
+        PUT API is commonly used for updating a resource. Let’s see an example of put() method to update an employee.
+
+        HTTP PUT /employees/{id} : updates an existing employee data from the request body and returns the updated employee in response.
+            @Autowired
+            WebClient webClient;
+
+            public Mono<Employee> update(Employee e) {
+                return webClient.put()
+                    .uri("/employees/" + e.getId())
+                    .body(Mono.just(e), Employee.class)
+                    .retrieve()
+                    .bodyToMono(Employee.class);
+            }
+
+    5.4. DELETE API Example
+        DELETE API is commonly used for deleting a resource. Let’s see an example of delete() method to delete an employee from records.
+
+        HTTP DELETE /employees/{id} : deletes an existing employee by its id. It does not accept any request body as
+        well as does not return any response body as well.
+            @Autowired
+            WebClient webClient;
+
+            public Mono<Void> delete(Integer id) {
+                return webClient.delete()
+                    .uri("/employees/" + id)
+                    .retrieve()
+                    .bodyToMono(Void.class);
+            }
+
+
+
+6. Useful Configurations
+    6.1. Configuring Memory Limit
+        Spring WebFlux configures the default memory limit for buffering data in-memory to 256KB.
+        If this limit is exceeded in any case then we will encounter DataBufferLimitException error.
+
+        To reset the memory limit, configure the below property in application.properties file.
+            spring.codec.max-in-memory-size=1MB

@@ -1,0 +1,122 @@
+Асинхронний запит
+    Давайте створимо сервіс, який використовує бін WebClient та створює асинхронний запит.
+
+        @Service
+        @AllArgsConstructor
+        public class UserService {
+            private final WebClient webClient;
+
+            public Mono<User> getUserByIdAsync(final String id) {
+                return webClient
+                        .get()
+                        .uri(String.join("", "/users/", id))
+                        .retrieve()
+                        .bodyToMono(User.class);
+            }
+        }
+
+    Як ви бачите, ми не одразу отримуємо модель User. Замість User ми отримуємо Mono-обгортку, з якою виконуємо різні дії.
+    Давайте підпишемося неблокуючим способом, використовуючи subscribe().
+
+        userService
+          .getUserByIdAsync("1")
+          .subscribe(user -> log.info("Get user async: {}", user));
+
+    Виконання триває відразу без блокування на методі subscribe(), навіть якщо для отримання значення буде потрібно деякий час.
+
+
+
+Синхронний запит
+    Якщо вам потрібний старий добрий синхронний виклик, це легко зробити за допомогою методу block().
+
+        public User getUserByIdSync(final String id) {
+            return webClient
+                    .get()
+                    .uri(String.join("", "/users/", id))
+                    .retrieve()
+                    .bodyToMono(User.class)
+                    .block();
+        }
+
+    Тут потік блокується, доки запит не виконається. У цьому випадку ми отримуємо потрібну модель відразу ж після
+    завершення виконання методу.
+
+
+
+Повторні спроби
+    Ми всі знаємо, що мережевий виклик не завжди може бути успішним. Але ми можемо перестрахуватись і в деяких випадках
+    виконати його повторно. Для цього використовується метод retryWhen(), який приймає як аргумент клас response.util.retry.Retry.
+
+        public User getUserWithRetry(final String id) {
+            return webClient
+                    .get()
+                    .uri(String.join("", "/users/", id))
+                    .retrieve()
+                    .bodyToMono(User.class)
+                    .retryWhen(Retry.fixedDelay(3, Duration.ofMillis(100)))
+                    .block();
+        }
+
+    За допомогою білдера можна налаштувати параметри та різні стратегії повтору (наприклад, експонентну).
+    Якщо вам потрібно повторити успішну спробу, використовуйте repeatWhen() або repeatWhenEmpty() замість retryWhen().
+
+
+
+Обробка помилок
+    У разі помилки, коли повторна спроба не допомагає, ми ще можемо контролювати ситуацію за допомогою резервного варіанту.
+    Доступні такі методи:
+
+    doOnError() - Спрацьовує, коли Mono завершується з помилкою.
+
+    onErrorResume() — при виникненні помилки підписується на резервного видавця, використовуючи функцію вибору дії залежно від помилки.
+
+    Ви можете використовувати ці функції для виклику іншого сервісу, викидання виключення, запису в лог або виконання
+    будь-якої дії залежно від помилки.
+
+        public User getUserWithFallback(final String id) {
+            return webClient
+                    .get()
+                    .uri(String.join("", "/broken-url/", id))
+                    .retrieve()
+                    .bodyToMono(User.class)
+                    .doOnError(error -> log.error("An error has occurred {}", error.getMessage()))
+                    .onErrorResume(error -> Mono.just(new User()))
+                    .block();
+        }
+
+    У деяких ситуаціях можливо корисно відреагувати на конкретний код помилки. Для цього можна використовувати метод onStatus().
+
+        public User getUserWithErrorHandling(final String id) {
+            return webClient
+                  .get()
+                  .uri(String.join("", "/broken-url/", id))
+                  .retrieve()
+                      .onStatus(HttpStatus::is4xxClientError,
+                              error -> Mono.error(new RuntimeException("API not found")))
+                      .onStatus(HttpStatus::is5xxServerError,
+                              error -> Mono.error(new RuntimeException("Server is not responding")))
+                  .bodyToMono(User.class)
+                  .block();
+        }
+
+
+
+Клієнтські фільтри
+    Для перехоплення та зміни запиту можна налаштувати фільтри через білдер WebClient.
+
+        WebClient.builder()
+          .baseUrl(BASE_URL)
+          .filter((request, next) -> next
+                  .exchange(ClientRequest.from(request)
+                          .header("foo", "bar")
+                          .build()))
+          .clientConnector(new ReactorClientHttpConnector(HttpClient.from(tcpClient)))
+          .build();
+
+    Нижче наведено приклад фільтра для базової аутентифікації за допомогою статичного методу фабричного.
+
+        WebClient.builder()
+          .baseUrl(BASE_URL)
+          .filter(basicAuthentication("user", "password")) // org.springframework.web.reactive.function.client.basicAuthentication()
+          .clientConnector(new ReactorClientHttpConnector(HttpClient.from(tcpClient)))
+          .build();
